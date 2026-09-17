@@ -5,6 +5,18 @@ from io import BytesIO
 import eec_utils
 
 
+def apply_non_eps_logic(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply Non-EPS rules: if Is Non-EPS is True, set EPS Wages=0, EDLI Wages=EPF Wages"""
+    df = df.copy()
+    if "Is Non-EPS" in df.columns:
+        mask = df["Is Non-EPS"] == True
+        if mask.any():
+            df.loc[mask, "EPS Wages"] = 0
+            if "EDLI Wages" in df.columns:
+                df.loc[mask, "EDLI Wages"] = df.loc[mask, "EPF Wages"]
+    return df
+
+
 st.set_page_config(
     page_title="EPFO EEC-2026 Return File Generator",
     page_icon="📋",
@@ -163,16 +175,22 @@ with tab_manual:
             }
         )
 
-    col_manual_1, col_manual_2 = st.columns([1, 3])
+    col_manual_1, col_manual_2, col_manual_3 = st.columns([1, 1, 2])
     with col_manual_1:
         if st.button("Use Manual Data", type="primary"):
-            employee_df = edited_df
+            employee_df = apply_non_eps_logic(edited_df)
             st.success(f"Using {len(employee_df)} row(s) from manual entry.")
     with col_manual_2:
-        if st.button("🔄 Mark Selected as Non-EPS", help="Sets EPS Wages=0 for selected rows"):
+        if st.button("⚡ Apply Non-EPS Logic", help="Sets EPS Wages=0, EDLI=EPF for Non-EPS members"):
+            edited_df = apply_non_eps_logic(edited_df)
+            st.rerun()
+    with col_manual_3:
+        if st.button("🔄 Mark Selected as Non-EPS", help="Sets Non-EPS=True, EPS Wages=0 for all rows"):
             if 'edited_df' in locals() and not edited_df.empty:
                 edited_df.loc[:, "Is Non-EPS"] = True
                 edited_df.loc[:, "EPS Wages"] = 0
+                if "EDLI Wages" in edited_df.columns:
+                    edited_df.loc[:, "EDLI Wages"] = edited_df.loc[:, "EPF Wages"]
                 st.rerun()
 
 
@@ -243,7 +261,7 @@ if employee_df is not None and not employee_df.empty:
     }
     display_df = display_df.rename(columns=col_rename_map)
 
-    col_review_1, col_review_2, col_review_3 = st.columns([1, 1, 4])
+    col_review_1, col_review_2, col_review_3, col_review_4 = st.columns([1, 1, 1, 3])
     with col_review_1:
         if st.button("🔄 Mark Selected as Non-EPS", key="mark_non_eps_review", help="Sets EPS Wages=0, ER EPS=0 for selected rows"):
             if not edited_review.empty:
@@ -257,6 +275,17 @@ if employee_df is not None and not employee_df.empty:
             if not edited_review.empty:
                 edited_review.loc[:, "12. Non-EPS Member"] = False
                 st.rerun()
+    with col_review_3:
+        if st.button("⚡ Apply Non-EPS Logic", key="apply_non_eps_review", help="Applies Non-EPS rules to checked rows"):
+            if not edited_review.empty:
+                mask = edited_review["12. Non-EPS Member"] == True
+                if mask.any():
+                    edited_review.loc[mask, "6. EPS Wages"] = 0
+                    edited_review.loc[mask, "9. Employer EPS Contribution"] = 0
+                    edited_review.loc[mask, "10. Employer PF Contribution"] = edited_review.loc[mask, "8. EE PF"]
+                    if "7. EDLI Wages" in edited_review.columns:
+                        edited_review.loc[mask, "7. EDLI Wages"] = edited_review.loc[mask, "5. EPF Wages"]
+                    st.rerun()
 
     edited_review = st.data_editor(
         display_df,
