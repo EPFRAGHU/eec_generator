@@ -45,18 +45,30 @@ def calculate_eec_row(
     edli_cap: float = DEFAULT_EDLI_CAP,
     pf_rate: float = DEFAULT_PF_RATE,
     eps_rate: float = DEFAULT_EPS_RATE,
-    ncp: int = 0
+    ncp: int = 0,
+    eps_wage: float = None,
+    edli_wage: float = None,
+    is_non_eps: bool = False
 ) -> Dict[str, Any]:
     uan_padded = str(uan).strip().zfill(12)
     name_upper = str(name).strip().upper()
     gross_val = _round_half_up(float(gross))
     epf_wage_val = _round_half_up(float(epf_wage))
 
-    eps_wage = _round_half_up(min(epf_wage_val, eps_cap))
-    edli_wage = _round_half_up(min(epf_wage_val, edli_cap))
+    if is_non_eps:
+        eps_wage_val = 0
+    elif eps_wage is not None:
+        eps_wage_val = _round_half_up(min(float(eps_wage), eps_cap))
+    else:
+        eps_wage_val = _round_half_up(min(epf_wage_val, eps_cap))
+
+    if edli_wage is not None:
+        edli_wage_val = _round_half_up(min(float(edli_wage), edli_cap))
+    else:
+        edli_wage_val = _round_half_up(min(epf_wage_val, edli_cap))
 
     ee_pf = _round_half_up(epf_wage_val * pf_rate)
-    er_eps = _round_half_up(eps_wage * eps_rate)
+    er_eps = _round_half_up(eps_wage_val * eps_rate) if not is_non_eps else 0
     er_pf = ee_pf - er_eps
 
     return {
@@ -65,12 +77,13 @@ def calculate_eec_row(
         "Wage Month (YYYYMM)": wage_month,
         "Gross Wages": gross_val,
         "EPF Wages": epf_wage_val,
-        "EPS Wages": eps_wage,
-        "EDLI Wages": edli_wage,
+        "EPS Wages": eps_wage_val,
+        "EDLI Wages": edli_wage_val,
         "Employee PF Contribution": ee_pf,
         "Employer EPS Contribution": er_eps,
         "Employer PF Contribution": er_pf,
-        "NCP Days": int(ncp)
+        "NCP Days": int(ncp),
+        "Is Non-EPS": is_non_eps
     }
 
 
@@ -85,11 +98,13 @@ def process_long_format(df: pd.DataFrame) -> pd.DataFrame:
         if col not in df.columns:
             raise ValueError(f"Long format missing required column: {col}")
 
-    if "NCP Days" not in df.columns:
-        df["NCP Days"] = 0
+    for col in ["NCP Days", "EPS Wages", "EDLI Wages", "Is Non-EPS"]:
+        if col not in df.columns:
+            df[col] = 0 if col == "NCP Days" else (False if col == "Is Non-EPS" else None)
 
     df["NCP Days"] = df["NCP Days"].fillna(0).astype(int)
     df["Wage Month (YYYYMM)"] = df["Wage Month (YYYYMM)"].astype(str)
+    df["Is Non-EPS"] = df["Is Non-EPS"].fillna(False).astype(bool)
 
     rows = []
     for _, row in df.iterrows():
@@ -99,7 +114,10 @@ def process_long_format(df: pd.DataFrame) -> pd.DataFrame:
             wage_month=str(row["Wage Month (YYYYMM)"]),
             gross=row["Gross Wages"],
             epf_wage=row["EPF Wages"],
-            ncp=row["NCP Days"]
+            ncp=row["NCP Days"],
+            eps_wage=row["EPS Wages"] if pd.notna(row["EPS Wages"]) else None,
+            edli_wage=row["EDLI Wages"] if pd.notna(row["EDLI Wages"]) else None,
+            is_non_eps=row["Is Non-EPS"]
         ))
 
     return pd.DataFrame(rows)
@@ -114,16 +132,21 @@ def expand_employee_data(df: pd.DataFrame, global_start: str, global_end: str) -
         if col not in df.columns:
             raise ValueError(f"Missing required column: {col}")
 
-    if "Start Month (YYYYMM)" not in df.columns:
-        df["Start Month (YYYYMM)"] = global_start
-    if "End Month (YYYYMM)" not in df.columns:
-        df["End Month (YYYYMM)"] = global_end
-    if "NCP Days" not in df.columns:
-        df["NCP Days"] = 0
+    for col in ["Start Month (YYYYMM)", "End Month (YYYYMM)", "NCP Days", "EPS Wages", "EDLI Wages", "Is Non-EPS"]:
+        if col not in df.columns:
+            if col in ["Start Month (YYYYMM)", "End Month (YYYYMM)"]:
+                df[col] = global_start if col == "Start Month (YYYYMM)" else global_end
+            elif col == "NCP Days":
+                df[col] = 0
+            elif col == "Is Non-EPS":
+                df[col] = False
+            else:
+                df[col] = None
 
     df["Start Month (YYYYMM)"] = df["Start Month (YYYYMM)"].fillna(global_start).astype(str)
     df["End Month (YYYYMM)"] = df["End Month (YYYYMM)"].fillna(global_end).astype(str)
     df["NCP Days"] = df["NCP Days"].fillna(0).astype(int)
+    df["Is Non-EPS"] = df["Is Non-EPS"].fillna(False).astype(bool)
 
     rows = []
     for _, row in df.iterrows():
@@ -134,6 +157,9 @@ def expand_employee_data(df: pd.DataFrame, global_start: str, global_end: str) -
         start_month = str(row["Start Month (YYYYMM)"])
         end_month = str(row["End Month (YYYYMM)"])
         ncp = int(row["NCP Days"])
+        is_non_eps = bool(row["Is Non-EPS"])
+        eps_wage = row["EPS Wages"] if pd.notna(row["EPS Wages"]) else None
+        edli_wage = row["EDLI Wages"] if pd.notna(row["EDLI Wages"]) else None
 
         if len(start_month) != 6:
             start_month = global_start
@@ -148,7 +174,10 @@ def expand_employee_data(df: pd.DataFrame, global_start: str, global_end: str) -
                 wage_month=m,
                 gross=gross,
                 epf_wage=epf_wage,
-                ncp=ncp
+                ncp=ncp,
+                eps_wage=eps_wage,
+                edli_wage=edli_wage,
+                is_non_eps=is_non_eps
             ))
 
     return pd.DataFrame(rows)
@@ -180,9 +209,12 @@ def get_excel_template() -> bytes:
         "Member Name": ["NITESH", "RAMESH"],
         "Gross Wages": [15000, 20000],
         "EPF Wages": [15000, 15000],
+        "EPS Wages": [15000, 15000],
+        "EDLI Wages": [15000, 15000],
         "Start Month (YYYYMM)": ["202501", ""],
         "End Month (YYYYMM)": ["202603", ""],
-        "NCP Days": [0, 0]
+        "NCP Days": [0, 0],
+        "Is Non-EPS": [False, False]
     })
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
@@ -197,7 +229,10 @@ def get_excel_template_long() -> bytes:
         "Wage Month (YYYYMM)": ["202501", "202502", "202501"],
         "Gross Wages": [15000, 16000, 20000],
         "EPF Wages": [15000, 15000, 15000],
-        "NCP Days": [0, 1, 0]
+        "EPS Wages": [15000, 15000, 15000],
+        "EDLI Wages": [15000, 15000, 15000],
+        "NCP Days": [0, 1, 0],
+        "Is Non-EPS": [False, False, False]
     })
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
@@ -211,9 +246,12 @@ def get_csv_template() -> str:
         "Member Name": ["NITESH", "RAMESH"],
         "Gross Wages": [15000, 20000],
         "EPF Wages": [15000, 15000],
+        "EPS Wages": [15000, 15000],
+        "EDLI Wages": [15000, 15000],
         "Start Month (YYYYMM)": ["202501", ""],
         "End Month (YYYYMM)": ["202603", ""],
-        "NCP Days": [0, 0]
+        "NCP Days": [0, 0],
+        "Is Non-EPS": [False, False]
     })
     return df.to_csv(index=False)
 
@@ -225,7 +263,10 @@ def get_csv_template_long() -> str:
         "Wage Month (YYYYMM)": ["202501", "202502", "202501"],
         "Gross Wages": [15000, 16000, 20000],
         "EPF Wages": [15000, 15000, 15000],
-        "NCP Days": [0, 1, 0]
+        "EPS Wages": [15000, 15000, 15000],
+        "EDLI Wages": [15000, 15000, 15000],
+        "NCP Days": [0, 1, 0],
+        "Is Non-EPS": [False, False, False]
     })
     return df.to_csv(index=False)
 
@@ -273,6 +314,10 @@ def auto_detect_columns(df: pd.DataFrame) -> pd.DataFrame:
             col_map[col] = "Gross Wages"
         elif "epf" in cl and "wage" in cl:
             col_map[col] = "EPF Wages"
+        elif "eps" in cl and "wage" in cl:
+            col_map[col] = "EPS Wages"
+        elif "edli" in cl and "wage" in cl:
+            col_map[col] = "EDLI Wages"
         elif "wage" in cl and "month" in cl:
             col_map[col] = "Wage Month (YYYYMM)"
         elif "start" in cl and "month" in cl:
@@ -281,5 +326,7 @@ def auto_detect_columns(df: pd.DataFrame) -> pd.DataFrame:
             col_map[col] = "End Month (YYYYMM)"
         elif "ncp" in cl and "day" in cl:
             col_map[col] = "NCP Days"
+        elif "non" in cl and "eps" in cl:
+            col_map[col] = "Is Non-EPS"
     df_renamed = df.rename(columns=col_map)
     return df_renamed

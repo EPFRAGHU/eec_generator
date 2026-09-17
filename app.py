@@ -110,9 +110,12 @@ with tab_manual:
             "Member Name": ["NITESH", "RAMESH"],
             "Gross Wages": [15000.0, 20000.0],
             "EPF Wages": [15000.0, 15000.0],
+            "EPS Wages": [15000.0, 15000.0],
+            "EDLI Wages": [15000.0, 15000.0],
             "Start Month (YYYYMM)": ["202501", ""],
             "End Month (YYYYMM)": ["202603", ""],
-            "NCP Days": [0, 0]
+            "NCP Days": [0, 0],
+            "Is Non-EPS": [False, False]
         })
         edited_df = st.data_editor(
             sample_df,
@@ -123,9 +126,12 @@ with tab_manual:
                 "Member Name": st.column_config.TextColumn("Member Name"),
                 "Gross Wages": st.column_config.NumberColumn("Gross Wages", format="%.0f"),
                 "EPF Wages": st.column_config.NumberColumn("EPF Wages", format="%.0f"),
+                "EPS Wages": st.column_config.NumberColumn("EPS Wages", format="%.0f", help="Optional: auto-calculated if empty"),
+                "EDLI Wages": st.column_config.NumberColumn("EDLI Wages", format="%.0f", help="Optional: auto-calculated if empty"),
                 "Start Month (YYYYMM)": st.column_config.TextColumn("Start Month (YYYYMM)", help="Optional"),
                 "End Month (YYYYMM)": st.column_config.TextColumn("End Month (YYYYMM)", help="Optional"),
                 "NCP Days": st.column_config.NumberColumn("NCP Days", format="%d", min_value=0),
+                "Is Non-EPS": st.column_config.CheckboxColumn("Non-EPS Member", help="Check if member is not eligible for EPS (age > 58, etc.)"),
             }
         )
     else:
@@ -135,7 +141,10 @@ with tab_manual:
             "Wage Month (YYYYMM)": ["202501", "202502", "202501"],
             "Gross Wages": [15000.0, 16000.0, 20000.0],
             "EPF Wages": [15000.0, 15000.0, 15000.0],
-            "NCP Days": [0, 1, 0]
+            "EPS Wages": [15000.0, 15000.0, 15000.0],
+            "EDLI Wages": [15000.0, 15000.0, 15000.0],
+            "NCP Days": [0, 1, 0],
+            "Is Non-EPS": [False, False, False]
         })
         edited_df = st.data_editor(
             sample_df_long,
@@ -147,13 +156,24 @@ with tab_manual:
                 "Wage Month (YYYYMM)": st.column_config.TextColumn("Wage Month (YYYYMM)", help="Required for Format 2"),
                 "Gross Wages": st.column_config.NumberColumn("Gross Wages", format="%.0f"),
                 "EPF Wages": st.column_config.NumberColumn("EPF Wages", format="%.0f"),
+                "EPS Wages": st.column_config.NumberColumn("EPS Wages", format="%.0f", help="Optional: auto-calculated if empty"),
+                "EDLI Wages": st.column_config.NumberColumn("EDLI Wages", format="%.0f", help="Optional: auto-calculated if empty"),
                 "NCP Days": st.column_config.NumberColumn("NCP Days", format="%d", min_value=0),
+                "Is Non-EPS": st.column_config.CheckboxColumn("Non-EPS Member", help="Check if member is not eligible for EPS"),
             }
         )
 
-    if st.button("Use Manual Data", type="primary"):
-        employee_df = edited_df
-        st.success(f"Using {len(employee_df)} row(s) from manual entry.")
+    col_manual_1, col_manual_2 = st.columns([1, 3])
+    with col_manual_1:
+        if st.button("Use Manual Data", type="primary"):
+            employee_df = edited_df
+            st.success(f"Using {len(employee_df)} row(s) from manual entry.")
+    with col_manual_2:
+        if st.button("🔄 Mark Selected as Non-EPS", help="Sets EPS Wages=0 for selected rows"):
+            if 'edited_df' in locals() and not edited_df.empty:
+                edited_df.loc[:, "Is Non-EPS"] = True
+                edited_df.loc[:, "EPS Wages"] = 0
+                st.rerun()
 
 
 if employee_df is not None and not employee_df.empty:
@@ -200,6 +220,9 @@ if employee_df is not None and not employee_df.empty:
     kpi_cols2[2].metric("Total ER PF", f"₹{kpis['Total ER PF']:,.2f}")
     kpi_cols2[3].metric("Total NCP Days", f"{kpis['Total NCP Days']:,}")
 
+    non_eps_count = int(final_df["Is Non-EPS"].sum()) if "Is Non-EPS" in final_df.columns else 0
+    st.caption(f"Non-EPS Members: {non_eps_count} / {len(final_df)} records")
+
     st.subheader("📋 Review & Edit Grid")
     display_df = final_df.copy()
     display_df.insert(0, "Sr.", range(1, len(display_df) + 1))
@@ -215,9 +238,25 @@ if employee_df is not None and not employee_df.empty:
         "Employee PF Contribution": "8. Employee PF Contribution",
         "Employer EPS Contribution": "9. Employer EPS Contribution",
         "Employer PF Contribution": "10. Employer PF Contribution",
-        "NCP Days": "11. NCP Days"
+        "NCP Days": "11. NCP Days",
+        "Is Non-EPS": "12. Non-EPS Member"
     }
     display_df = display_df.rename(columns=col_rename_map)
+
+    col_review_1, col_review_2, col_review_3 = st.columns([1, 1, 4])
+    with col_review_1:
+        if st.button("🔄 Mark Selected as Non-EPS", key="mark_non_eps_review", help="Sets EPS Wages=0, ER EPS=0 for selected rows"):
+            if not edited_review.empty:
+                edited_review.loc[:, "12. Non-EPS Member"] = True
+                edited_review.loc[:, "6. EPS Wages"] = 0
+                edited_review.loc[:, "9. Employer EPS Contribution"] = 0
+                edited_review.loc[:, "10. Employer PF Contribution"] = edited_review["8. EE PF"]
+                st.rerun()
+    with col_review_2:
+        if st.button("✅ Clear Non-EPS", key="clear_non_eps_review", help="Restores auto-calculated EPS wages"):
+            if not edited_review.empty:
+                edited_review.loc[:, "12. Non-EPS Member"] = False
+                st.rerun()
 
     edited_review = st.data_editor(
         display_df,
@@ -228,14 +267,15 @@ if employee_df is not None and not employee_df.empty:
             "1. UAN": st.column_config.TextColumn("1. UAN", disabled=True),
             "2. Member Name": st.column_config.TextColumn("2. Member Name", disabled=True),
             "3. Wage Month (YYYYMM)": st.column_config.TextColumn("3. Wage Month", disabled=True),
-            "4. Gross Wages": st.column_config.NumberColumn("4. Gross Wages", format="%.2f"),
-            "5. EPF Wages": st.column_config.NumberColumn("5. EPF Wages", format="%.2f"),
-            "6. EPS Wages": st.column_config.NumberColumn("6. EPS Wages", format="%.2f"),
-            "7. EDLI Wages": st.column_config.NumberColumn("7. EDLI Wages", format="%.2f"),
+            "4. Gross Wages": st.column_config.NumberColumn("4. Gross Wages", format="%.0f"),
+            "5. EPF Wages": st.column_config.NumberColumn("5. EPF Wages", format="%.0f"),
+            "6. EPS Wages": st.column_config.NumberColumn("6. EPS Wages", format="%.0f"),
+            "7. EDLI Wages": st.column_config.NumberColumn("7. EDLI Wages", format="%.0f"),
             "8. Employee PF Contribution": st.column_config.NumberColumn("8. EE PF", format="%d"),
             "9. Employer EPS Contribution": st.column_config.NumberColumn("9. ER EPS", format="%d"),
             "10. Employer PF Contribution": st.column_config.NumberColumn("10. ER PF", format="%d"),
             "11. NCP Days": st.column_config.NumberColumn("11. NCP Days", format="%d", min_value=0),
+            "12. Non-EPS Member": st.column_config.CheckboxColumn("12. Non-EPS", help="Member not eligible for EPS"),
         }
     )
 
