@@ -74,7 +74,41 @@ def calculate_eec_row(
     }
 
 
+def is_long_format(df: pd.DataFrame) -> bool:
+    cols = [c.lower().replace(" ", "").replace("_", "") for c in df.columns]
+    return any("wagemonth" in c or "wagemonth(yyyymm)" in c for c in cols)
+
+
+def process_long_format(df: pd.DataFrame) -> pd.DataFrame:
+    required = ["UAN", "Member Name", "Wage Month (YYYYMM)", "Gross Wages", "EPF Wages"]
+    for col in required:
+        if col not in df.columns:
+            raise ValueError(f"Long format missing required column: {col}")
+
+    if "NCP Days" not in df.columns:
+        df["NCP Days"] = 0
+
+    df["NCP Days"] = df["NCP Days"].fillna(0).astype(int)
+    df["Wage Month (YYYYMM)"] = df["Wage Month (YYYYMM)"].astype(str)
+
+    rows = []
+    for _, row in df.iterrows():
+        rows.append(calculate_eec_row(
+            uan=row["UAN"],
+            name=row["Member Name"],
+            wage_month=str(row["Wage Month (YYYYMM)"]),
+            gross=row["Gross Wages"],
+            epf_wage=row["EPF Wages"],
+            ncp=row["NCP Days"]
+        ))
+
+    return pd.DataFrame(rows)
+
+
 def expand_employee_data(df: pd.DataFrame, global_start: str, global_end: str) -> pd.DataFrame:
+    if is_long_format(df):
+        return process_long_format(df)
+
     required_cols = ["UAN", "Member Name", "Gross Wages", "EPF Wages"]
     for col in required_cols:
         if col not in df.columns:
@@ -156,6 +190,21 @@ def get_excel_template() -> bytes:
     return buffer.getvalue()
 
 
+def get_excel_template_long() -> bytes:
+    df = pd.DataFrame({
+        "UAN": ["100257274743", "100257274743", "100427601130"],
+        "Member Name": ["NITESH", "NITESH", "RAMESH"],
+        "Wage Month (YYYYMM)": ["202501", "202502", "202501"],
+        "Gross Wages": [15000, 16000, 20000],
+        "EPF Wages": [15000, 15000, 15000],
+        "NCP Days": [0, 1, 0]
+    })
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Employees_Long")
+    return buffer.getvalue()
+
+
 def get_csv_template() -> str:
     df = pd.DataFrame({
         "UAN": ["100257274743", "100427601130"],
@@ -165,6 +214,18 @@ def get_csv_template() -> str:
         "Start Month (YYYYMM)": ["202501", ""],
         "End Month (YYYYMM)": ["202603", ""],
         "NCP Days": [0, 0]
+    })
+    return df.to_csv(index=False)
+
+
+def get_csv_template_long() -> str:
+    df = pd.DataFrame({
+        "UAN": ["100257274743", "100257274743", "100427601130"],
+        "Member Name": ["NITESH", "NITESH", "RAMESH"],
+        "Wage Month (YYYYMM)": ["202501", "202502", "202501"],
+        "Gross Wages": [15000, 16000, 20000],
+        "EPF Wages": [15000, 15000, 15000],
+        "NCP Days": [0, 1, 0]
     })
     return df.to_csv(index=False)
 
@@ -212,6 +273,8 @@ def auto_detect_columns(df: pd.DataFrame) -> pd.DataFrame:
             col_map[col] = "Gross Wages"
         elif "epf" in cl and "wage" in cl:
             col_map[col] = "EPF Wages"
+        elif "wage" in cl and "month" in cl:
+            col_map[col] = "Wage Month (YYYYMM)"
         elif "start" in cl and "month" in cl:
             col_map[col] = "Start Month (YYYYMM)"
         elif "end" in cl and "month" in cl:

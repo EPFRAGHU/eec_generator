@@ -36,9 +36,10 @@ with st.sidebar:
 
     st.divider()
     st.subheader("📥 Download Templates")
+    st.caption("Format 1: One row per employee (auto-expands to all months)")
     excel_bytes = eec_utils.get_excel_template()
     st.download_button(
-        "📊 Excel Template",
+        "📊 Excel Template (Format 1)",
         data=excel_bytes,
         file_name="eec_employee_template.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -46,9 +47,27 @@ with st.sidebar:
     )
     csv_text = eec_utils.get_csv_template()
     st.download_button(
-        "📄 CSV Template",
+        "📄 CSV Template (Format 1)",
         data=csv_text,
         file_name="eec_employee_template.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
+
+    st.caption("Format 2: One row per employee per month (per-month wages)")
+    excel_bytes_long = eec_utils.get_excel_template_long()
+    st.download_button(
+        "📊 Excel Template (Format 2 - Long)",
+        data=excel_bytes_long,
+        file_name="eec_employee_template_long.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
+    csv_text_long = eec_utils.get_csv_template_long()
+    st.download_button(
+        "📄 CSV Template (Format 2 - Long)",
+        data=csv_text_long,
+        file_name="eec_employee_template_long.csv",
         mime="text/csv",
         use_container_width=True
     )
@@ -76,33 +95,65 @@ with tab_upload:
 
 with tab_manual:
     st.subheader("Manual Entry Grid")
-    st.caption("Add/edit rows directly. Pre-filled with 2 sample rows.")
-    sample_df = pd.DataFrame({
-        "UAN": ["100257274743", "100427601130"],
-        "Member Name": ["NITESH", "RAMESH"],
-        "Gross Wages": [15000.0, 20000.0],
-        "EPF Wages": [15000.0, 15000.0],
-        "Start Month (YYYYMM)": ["202501", ""],
-        "End Month (YYYYMM)": ["202603", ""],
-        "NCP Days": [0, 0]
-    })
-    edited_df = st.data_editor(
-        sample_df,
-        num_rows="dynamic",
-        use_container_width=True,
-        column_config={
-            "UAN": st.column_config.TextColumn("UAN", help="12-digit UAN"),
-            "Member Name": st.column_config.TextColumn("Member Name"),
-            "Gross Wages": st.column_config.NumberColumn("Gross Wages", format="%.2f"),
-            "EPF Wages": st.column_config.NumberColumn("EPF Wages", format="%.2f"),
-            "Start Month (YYYYMM)": st.column_config.TextColumn("Start Month (YYYYMM)", help="Optional"),
-            "End Month (YYYYMM)": st.column_config.TextColumn("End Month (YYYYMM)", help="Optional"),
-            "NCP Days": st.column_config.NumberColumn("NCP Days", format="%d", min_value=0),
-        }
+    st.caption("Add/edit rows directly. Format 1: one row per employee (uses global period). Format 2: one row per employee per month.")
+
+    format_choice = st.radio(
+        "Input Format",
+        ["Format 1: Employee-level (auto-expand)", "Format 2: Per-month wages (long)"],
+        horizontal=True,
+        key="manual_format"
     )
+
+    if format_choice == "Format 1: Employee-level (auto-expand)":
+        sample_df = pd.DataFrame({
+            "UAN": ["100257274743", "100427601130"],
+            "Member Name": ["NITESH", "RAMESH"],
+            "Gross Wages": [15000.0, 20000.0],
+            "EPF Wages": [15000.0, 15000.0],
+            "Start Month (YYYYMM)": ["202501", ""],
+            "End Month (YYYYMM)": ["202603", ""],
+            "NCP Days": [0, 0]
+        })
+        edited_df = st.data_editor(
+            sample_df,
+            num_rows="dynamic",
+            use_container_width=True,
+            column_config={
+                "UAN": st.column_config.TextColumn("UAN", help="12-digit UAN"),
+                "Member Name": st.column_config.TextColumn("Member Name"),
+                "Gross Wages": st.column_config.NumberColumn("Gross Wages", format="%.0f"),
+                "EPF Wages": st.column_config.NumberColumn("EPF Wages", format="%.0f"),
+                "Start Month (YYYYMM)": st.column_config.TextColumn("Start Month (YYYYMM)", help="Optional"),
+                "End Month (YYYYMM)": st.column_config.TextColumn("End Month (YYYYMM)", help="Optional"),
+                "NCP Days": st.column_config.NumberColumn("NCP Days", format="%d", min_value=0),
+            }
+        )
+    else:
+        sample_df_long = pd.DataFrame({
+            "UAN": ["100257274743", "100257274743", "100427601130"],
+            "Member Name": ["NITESH", "NITESH", "RAMESH"],
+            "Wage Month (YYYYMM)": ["202501", "202502", "202501"],
+            "Gross Wages": [15000.0, 16000.0, 20000.0],
+            "EPF Wages": [15000.0, 15000.0, 15000.0],
+            "NCP Days": [0, 1, 0]
+        })
+        edited_df = st.data_editor(
+            sample_df_long,
+            num_rows="dynamic",
+            use_container_width=True,
+            column_config={
+                "UAN": st.column_config.TextColumn("UAN", help="12-digit UAN"),
+                "Member Name": st.column_config.TextColumn("Member Name"),
+                "Wage Month (YYYYMM)": st.column_config.TextColumn("Wage Month (YYYYMM)", help="Required for Format 2"),
+                "Gross Wages": st.column_config.NumberColumn("Gross Wages", format="%.0f"),
+                "EPF Wages": st.column_config.NumberColumn("EPF Wages", format="%.0f"),
+                "NCP Days": st.column_config.NumberColumn("NCP Days", format="%d", min_value=0),
+            }
+        )
+
     if st.button("Use Manual Data", type="primary"):
         employee_df = edited_df
-        st.success(f"Using {len(employee_df)} employee(s) from manual entry.")
+        st.success(f"Using {len(employee_df)} row(s) from manual entry.")
 
 
 if employee_df is not None and not employee_df.empty:
