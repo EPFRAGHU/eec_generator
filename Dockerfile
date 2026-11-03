@@ -6,4 +6,5 @@ COPY . .
 EXPOSE 8501
 ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
 ENV STREAMLIT_SERVER_HEADLESS=true
+ENV SSL_CERT_FILE=/usr/local/lib/python3.11/site-packages/certifi/cacert.pem
 CMD ["streamlit", "run", "app.py"]
